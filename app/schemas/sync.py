@@ -10,3 +10,5 @@ class SyncResponse(BaseModel):
     status: str
     user_id: int
     courses: int
+    materials: int = 0
+    activities: int = 0

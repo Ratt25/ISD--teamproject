@@ -104,6 +104,79 @@ def run_sync(lms_id: str = None, cookie_str: str = None) -> dict:
             "courses": len(courses), "materials": total_mat, "activities": total_act}
 
 
+def run_sync_delta(lms_id: str = None, cookie_str: str = None) -> dict:
+    """알림 기반 증분 동기화 — 변경된 과목·타입만 처리."""
+    scraper = EClassScraper(lms_id, cookie_str)
+
+    if not scraper.login():
+        raise RuntimeError("로그인 실패. ECLASS_COOKIE를 확인하세요.")
+
+    init_schema()
+    user_id = upsert_user(
+        lms_id=scraper.lms_id,
+        enc_cookie=scraper.get_session_cookie_str(),
+    )
+
+    # 알림 파싱 → 과목별 동기화 대상 결정
+    notifications = scraper.get_notifications()
+    if not notifications:
+        return {"status": "no_changes", "user_id": user_id,
+                "courses": 0, "materials": 0, "activities": 0}
+
+    # kjkey → {material, activity} 필요 여부
+    targets: dict[str, set] = {}
+    for n in notifications:
+        targets.setdefault(n["kjkey"], set()).add(n["kind"])
+
+    print(f"[delta] 알림 {len(notifications)}건 → 과목 {len(targets)}개 처리")
+
+    total_mat = 0
+    total_act = 0
+
+    for kjkey, kinds in targets.items():
+        course_id = upsert_course(lms_url_id=kjkey, course_code="", title=kjkey)
+        upsert_enrollment(user_id, course_id)
+
+        if "material" in kinds:
+            materials = scraper.get_materials(kjkey)
+            print(f"  [{kjkey}] 자료 {len(materials)}개 확인")
+            for mat in materials:
+                dest      = MATERIAL_DIR / kjkey
+                safe      = _safe_filename(mat["title"], mat["file_type"])
+                local_path = dest / safe
+                try:
+                    if local_path.exists():
+                        checksum = hashlib.md5(local_path.read_bytes()).hexdigest()
+                    else:
+                        local_path, checksum = scraper.download_material(
+                            mat["download_url"], dest, safe
+                        )
+                        print(f"  [NEW] {safe}")
+                    upsert_material(
+                        course_id=course_id, title=mat["title"],
+                        file_type=mat["file_type"],
+                        file_path=str(local_path), checksum=checksum,
+                    )
+                    total_mat += 1
+                except Exception as e:
+                    print(f"  [WARN] {e}")
+
+        if "activity" in kinds:
+            activities = scraper.get_activities(kjkey)
+            print(f"  [{kjkey}] 활동 {len(activities)}개 확인")
+            for act in activities:
+                upsert_activity(
+                    user_id=user_id, course_id=course_id,
+                    title=act["title"], status=act["status"],
+                    due_date=act["due_date"],
+                )
+                total_act += 1
+
+    touch_sync(user_id)
+    return {"status": "delta_synced", "user_id": user_id,
+            "courses": len(targets), "materials": total_mat, "activities": total_act}
+
+
 def _safe_filename(title: str, ext: str) -> str:
     safe = "".join(c if c.isalnum() or c in " ._-가-힣" else "_" for c in title)
     safe = safe.strip()[:80]

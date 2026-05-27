@@ -260,6 +260,56 @@ class EClassScraper:
         return items
 
     # ------------------------------------------------------------------
+    # 알림 (notification_list.acl)
+    # ------------------------------------------------------------------
+
+    def get_notifications(self) -> list[dict]:
+        """
+        e-Class 알림 목록 파싱.
+        Return list of: {kjkey, artl_num, kind, text}
+        kind: 'material' | 'activity'
+        """
+        resp = self.session.post(
+            f"{BASE_URL}/ilos/mp/notification_list.acl",
+            data={"start": "0", "openDt": "", "encoding": "utf-8"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.content, "lxml")
+
+        KIND_MAP = {
+            "강의자료": "material",
+            "과제":    "activity",
+            "시험":    "activity",
+            "퀴즈":    "activity",
+        }
+
+        notifications = []
+        for div in soup.select("div.notification_content[onclick]"):
+            m = re.search(r"goSubjectPage\('(\w+)','(\d+)','S'\)", div.get("onclick", ""))
+            if not m:
+                continue
+            kjkey, artl_num = m.group(1), m.group(2)
+
+            kind_span = div.select_one("span.site-font-color")
+            raw_kind  = kind_span.get_text(strip=True).strip("[]") if kind_span else ""
+            kind      = KIND_MAP.get(raw_kind)
+            if not kind:
+                continue
+
+            text = div.select_one("div.notification_text")
+            text = text.get_text(" ", strip=True) if text else ""
+
+            notifications.append({
+                "kjkey":    kjkey,
+                "artl_num": artl_num,
+                "kind":     kind,
+                "text":     text,
+            })
+
+        return notifications
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
