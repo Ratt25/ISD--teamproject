@@ -21,7 +21,6 @@
       font-family: 'Segoe UI', system-ui, sans-serif;
       min-height: 100vh;
     }
-
     .topbar {
       display: flex;
       align-items: center;
@@ -40,7 +39,6 @@
       color: var(--muted);
     }
     .tag.hi { border-color: var(--accent); color: var(--accent); }
-
     .tabnav {
       display: flex;
       border-bottom: 1px solid var(--border);
@@ -58,10 +56,8 @@
     }
     .tabnav button.active { color: var(--accent); border-bottom-color: var(--accent); }
     .tabnav button:hover  { color: var(--text); }
-
     .tab { display: none; padding: 1.5rem 2rem; }
     .tab.active { display: block; }
-
     .section-label {
       font-size: .7rem;
       letter-spacing: .12em;
@@ -69,41 +65,35 @@
       color: var(--muted);
       margin-bottom: 1rem;
     }
-
-    .diagram-card {
+    .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 1.5rem 2rem;
       overflow-x: auto;
     }
-    .diagram-card p {
+    .card p {
       font-size: .82rem;
       color: var(--muted);
       line-height: 1.6;
-      margin-bottom: 1.4rem;
-    }
-
-    .legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: .5rem;
       margin-bottom: 1.2rem;
     }
-    .legend-item {
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .4rem;
+      margin-bottom: 1.2rem;
+    }
+    .pill {
       background: var(--tag-bg);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      font-size: .72rem;
-      padding: .2rem .6rem;
+      border-radius: 5px;
+      font-size: .71rem;
+      padding: .18rem .55rem;
       color: var(--muted);
     }
-    .legend-item b { color: var(--accent); }
-
-    .diagram-card .mermaid svg {
-      background: transparent !important;
-      min-width: 760px;
-    }
+    .pill b { color: var(--accent); }
+    .mermaid svg { background: transparent !important; min-width: 700px; }
   </style>
 </head>
 <body>
@@ -125,27 +115,18 @@
 <!-- ① Sync -->
 <div id="tab-sync" class="tab active">
   <div class="section-label">e-Class → SQLite 동기화 흐름</div>
-  <div class="diagram-card">
+  <div class="card">
     <p>
-      쿠키 주입으로 세션을 확립하고 강의자료·활동을 수집해 SQLite에 저장합니다.<br>
-      강의자료는 다운로드 후 청크 분할까지 완료해 키워드 검색을 준비합니다.
+      JSESSIONID 쿠키를 주입해 세션을 확립하고, 과목별로 강의자료·활동을 수집해 SQLite에 저장합니다.
     </p>
-    <div class="legend">
-      <span class="legend-item">EP <b>POST /sync</b></span>
-      <span class="legend-item">DB <b>User</b> · <b>Course</b> · <b>Enrollment</b></span>
-      <span class="legend-item">DB <b>Material</b> · <b>Doc_Chunk</b></span>
-      <span class="legend-item">DB <b>Learning_Activity</b></span>
+    <div class="pills">
+      <span class="pill">EP <b>POST /sync</b></span>
+      <span class="pill">DB <b>User · Course · Enrollment · Material · Doc_Chunk · Learning_Activity</b></span>
     </div>
     <div class="mermaid">
 %%{init: {
   "theme": "dark",
-  "sequence": {
-    "actorMargin": 80,
-    "width": 170,
-    "noteMargin": 10,
-    "messageMargin": 40,
-    "useMaxWidth": false
-  }
+  "sequence": { "actorMargin": 60, "width": 150, "messageMargin": 35, "useMaxWidth": false }
 }}%%
 sequenceDiagram
     autonumber
@@ -157,47 +138,44 @@ sequenceDiagram
     participant DB as SQLite
 
     U  ->> EX : 동기화 클릭
-    EX ->> AP : POST /sync {lms_id, cookie}
-    AP ->> SC : run_sync(lms_id, cookie)
+    EX ->> AP : POST /sync
+    AP ->> SC : run_sync()
 
-    note over SC,EC : Cookie Injection — WIS 2FA 우회
-    SC ->> EC : GET main_form.acl (JSESSIONID)
+    note over SC,EC : Cookie Injection — JSESSIONID 주입
+    SC ->> EC : GET main_form.acl
     EC -->> SC : 세션 확립
 
-    SC ->> DB : upsert_user(lms_id, cookie)<br/>→ User.user_id
-    DB -->> SC : user_id
+    SC ->> DB : upsert_user()
+    DB -->> SC : User.user_id
 
-    note over SC,EC : 수강과목 파싱 — em.sub_open[kj]
+    note over SC,EC : em.sub_open[kj] 파싱 → KJKEY 목록
     SC ->> EC : GET main_form.acl
-    EC -->> SC : em[kj] 목록 (KJKEY, title)
+    EC -->> SC : KJKEY[]
 
-    loop 각 과목 (KJKEY)
-        SC ->> DB : upsert_course(lms_url_id=KJKEY)<br/>→ Course.course_id
-        SC ->> DB : upsert_enrollment(user_id, course_id)<br/>→ Enrollment
+    loop 각 과목
+        SC ->> DB : upsert_course() · upsert_enrollment()
 
         note over SC,EC : eclass_room2.acl → 과목 컨텍스트 설정
-        SC ->> EC : POST eclass_room2.acl {KJKEY}
+        SC ->> EC : POST eclass_room2.acl
         EC -->> SC : returnURL
 
-        SC ->> EC : POST lecture_material_list.acl
-        EC -->> SC : downloadClick 해시 목록
+        SC ->> EC : lecture_material_list.acl
+        EC -->> SC : downloadClick 해시[]
 
-        loop 각 강의자료
-            SC ->> EC : POST list_file_list2.acl {CONTENT_SEQ}
-            EC -->> SC : efile_download2.acl 링크
-            SC ->> EC : GET efile_download2.acl
-            EC -->> SC : 파일 (PDF·PPTX)
-            SC ->> DB : upsert_material(course_id, title, checksum)<br/>→ Material.material_id
-            SC ->> DB : insert_doc_chunks(material_id, chunks[])<br/>→ Doc_Chunk rows
+        loop 각 파일
+            SC ->> EC : list_file_list2 → efile_download2
+            EC -->> SC : 파일 (PDF · PPTX)
+            SC ->> DB : upsert_material() → Material
+            SC ->> DB : insert_chunks() → Doc_Chunk
         end
 
-        SC ->> EC : GET report_list / test_list
-        EC -->> SC : 과제·퀴즈 목록
-        SC ->> DB : upsert_activity(user_id, course_id)<br/>→ Learning_Activity
+        SC ->> EC : report_list · test_list
+        EC -->> SC : 과제 · 퀴즈
+        SC ->> DB : upsert_activity() → Learning_Activity
     end
 
-    SC ->> DB : touch_sync(user_id)<br/>→ User.last_sync_at
-    AP -->> EX : {status, courses, materials, activities}
+    SC ->> DB : touch_sync() → User.last_sync_at
+    AP -->> EX : courses · materials · activities
     EX -->> U  : 동기화 완료
     </div>
   </div>
@@ -206,65 +184,59 @@ sequenceDiagram
 <!-- ② RAG Q&A -->
 <div id="tab-rag" class="tab">
   <div class="section-label">질문 → 키워드 검색 → Claude 답변 흐름</div>
-  <div class="diagram-card">
+  <div class="card">
     <p>
-      질문에서 키워드를 추출해 Doc_Chunk를 FTS 검색하고 chunk_id·material_id로 출처를 추적합니다.<br>
-      Chat_Log는 JSON sources 필드에 번호를 저장하며, 피드백도 동일 레코드에 반영됩니다.
+      키워드를 FTS5로 Doc_Chunk에서 검색하고, chunk_id·material_id·page_ref로 출처를 추적합니다.<br>
+      Chat_Log의 sources 필드에 JSON으로 저장하며, 피드백은 feedback_score에 즉시 반영됩니다.
     </p>
-    <div class="legend">
-      <span class="legend-item">EP <b>POST /chat</b> · <b>GET /chat/{session_id}</b> · <b>POST /chat/{chat_id}/feedback</b></span>
-      <span class="legend-item">DB <b>Chat_Session</b> · <b>Chat_Log</b></span>
-      <span class="legend-item">DB <b>Doc_Chunk</b> · <b>Material</b></span>
-      <span class="legend-item">JSON <b>sources: [{chunk_id, material_id, page_ref}]</b></span>
+    <div class="pills">
+      <span class="pill">EP <b>POST /chat · GET /chat/{session_id} · POST /chat/{id}/feedback</b></span>
+      <span class="pill">DB <b>Chat_Session · Chat_Log · Doc_Chunk · Material</b></span>
+      <span class="pill">sources <b>[{chunk_id, material_id, page_ref}]</b></span>
     </div>
     <div class="mermaid">
 %%{init: {
   "theme": "dark",
-  "sequence": {
-    "actorMargin": 80,
-    "width": 170,
-    "noteMargin": 10,
-    "messageMargin": 40,
-    "useMaxWidth": false
-  }
+  "sequence": { "actorMargin": 60, "width": 150, "messageMargin": 35, "useMaxWidth": false }
 }}%%
 sequenceDiagram
     autonumber
     actor    U  as User
     participant EX as Extension
     participant AP as FastAPI
-    participant KW as KeySearch
+    participant KW as Keywords
     participant LM as Claude
     participant DB as SQLite
 
     U  ->> EX : 질문 입력
-    EX ->> AP : POST /chat {query, course_id, session_id?}
+    EX ->> AP : POST /chat {query, course_id}
 
-    AP ->> DB : Chat_Session 조회/생성<br/>→ Chat_Session.session_id
+    AP ->> DB : Chat_Session 조회 / 생성
+    DB -->> AP : session_id
 
-    AP ->> DB : SELECT Chat_Log WHERE session_id<br/>→ [{role, content}] 최근 N턴
+    AP ->> DB : SELECT Chat_Log WHERE session_id
+    DB -->> AP : 최근 대화 이력
 
-    note over AP,KW : 키워드 기반 청크 검색 (SQLite FTS5)
+    note over AP,KW : 키워드 추출 → FTS5 검색
     AP ->> KW : extract_keywords(query)
     KW -->> AP : keywords[]
-    AP ->> DB : SELECT chunk_id, material_id, page_ref, content<br/>FROM Doc_Chunk (FTS) WHERE course_id<br/>MATCH keywords → score DESC LIMIT k
-    DB -->> AP : [{chunk_id, material_id, page_ref, snippet}]
+    AP ->> DB : Doc_Chunk FTS5 MATCH keywords
+    DB -->> AP : chunk_id · material_id · page_ref · content
 
-    note over AP,LM : 프롬프트 조립
-    AP ->> LM : system: 과목 튜터 컨텍스트<br/>context: chunk 내용 목록<br/>history: Chat_Log 이력<br/>user: query
+    note over AP,LM : system + context + history + query
+    AP ->> LM : prompt 전송
+    LM -->> AP : 답변 (streaming)
 
-    LM -->> AP : 답변 텍스트 (streaming)
+    AP ->> DB : INSERT Chat_Log role=user
+    AP ->> DB : INSERT Chat_Log role=assistant · sources=JSON
 
-    AP ->> DB : INSERT Chat_Log<br/>{session_id, role='user', content=query,<br/>sources=null}
-    AP ->> DB : INSERT Chat_Log<br/>{session_id, role='assistant', content=답변,<br/>sources=JSON[{chunk_id, material_id, page_ref}]}
-
-    AP -->> EX : {answer, sources, session_id, chat_id}
-    EX -->> U  : 답변 + 출처(강의명·페이지) 표시
+    AP -->> EX : answer · sources · chat_id
+    EX -->> U  : 답변 + 출처 표시
 
     opt 피드백
         U  ->> EX : 👍 / 👎
-        EX ->> AP : POST /chat/{chat_id}/feedback {score}
-        AP ->> DB : UPDATE Chat_Log SET feedback_score=score<br/>WHERE chat_id
+        EX ->> AP : POST /chat/{chat_id}/feedback
+        AP ->> DB : UPDATE Chat_Log feedback_score
         AP -->> EX : OK
     end
     </div>
@@ -275,11 +247,7 @@ sequenceDiagram
   mermaid.initialize({
     startOnLoad: true,
     securityLevel: 'loose',
-    sequence: {
-      actorMargin: 80,
-      width: 170,
-      useMaxWidth: false
-    }
+    sequence: { actorMargin: 60, width: 150, useMaxWidth: false }
   });
 
   function show(tab, btn) {
