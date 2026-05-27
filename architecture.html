@@ -150,13 +150,13 @@ graph TB
 
     subgraph ECLASS["HUFS e-Class"]
         AUTH["main_form.acl"]
-        MAT["efile_download2.acl"]
-        ACT["report / test list"]
+        MAT["Material 다운로드\nefile_download2.acl"]
+        ACT["Learning_Activity\nreport / test list"]
     end
 
     subgraph PIPE["Ingest Pipeline"]
         SCR["EClassScraper"]
-        CHK["Chunker"]
+        CHK["Doc_Chunk 분할"]
     end
 
     subgraph DB["SQLite"]
@@ -168,7 +168,7 @@ graph TB
 
     subgraph RAG["RAG Engine"]
         KW["Keyword Extractor"]
-        FTS["FTS5 Search"]
+        FTS["FTS5 — Doc_Chunk"]
         PB["Prompt Builder"]
         LLM["Claude API"]
     end
@@ -181,11 +181,11 @@ graph TB
 
     UI -->|query| EP2
     EP2 --> KW --> FTS --> DB2
-    EP2 -->|history| DB4
+    EP2 -->|Chat_Log| DB4
     DB4 --> PB
     FTS --> PB
     PB --> LLM --> UI
-    LLM --> DB4
+    LLM -->|Chat_Log.sources| DB4
     UI --> EP4 --> DB4
     EP3 --> DB4
     </div>
@@ -225,10 +225,10 @@ flowchart LR
     F --> I[lecture_material_list.acl]
     I --> J[list_file_list2.acl]
     J --> K[efile_download2.acl\n파일 다운로드]
-    K --> L{checksum\n중복?}
-    L -- 신규 --> M[텍스트 추출\nPDF · PPTX]
-    M --> N[페이지 단위\n청크 분할]
-    N --> O[(Material)]
+    K --> L{Material\nchecksum 중복?}
+    L -- 신규 --> O[(Material)]
+    O --> M[텍스트 추출\nPDF · PPTX]
+    M --> N[페이지 단위 분할]
     N --> P[(Doc_Chunk)]
     L -- 중복 --> Q([skip])
 
@@ -275,7 +275,7 @@ flowchart LR
         A --> F[Keyword\nExtraction]
         F --> G[Doc_Chunk\nFTS5 MATCH]
         G --> H[(Doc_Chunk)]
-        G --> I[top-k 청크\nchunk_id · page_ref]
+        G --> I[top-k Doc_Chunk\nchunk_id · page_ref]
     end
 
     subgraph BUILD["Prompt 조립"]
@@ -288,7 +288,7 @@ flowchart LR
         K --> L[Claude API]
         L --> M[(Chat_Log\nrole=user)]
         L --> N[(Chat_Log\nrole=assistant\nsources=JSON)]
-        L --> O([응답 + 출처])
+        L --> O([응답 + Chat_Log.sources])
     end
 
     subgraph FB["피드백"]

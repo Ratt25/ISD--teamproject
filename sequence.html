@@ -117,7 +117,7 @@
   <div class="section-label">e-Class → SQLite 동기화 흐름</div>
   <div class="card">
     <p>
-      JSESSIONID 쿠키를 주입해 세션을 확립하고, 과목별로 강의자료·활동을 수집해 SQLite에 저장합니다.
+      JSESSIONID 쿠키를 주입해 세션을 확립하고, 과목별로 Material · Learning_Activity를 수집해 SQLite에 저장합니다.
     </p>
     <div class="pills">
       <span class="pill">EP <b>POST /sync</b></span>
@@ -162,7 +162,7 @@ sequenceDiagram
         SC ->> EC : lecture_material_list.acl
         EC -->> SC : downloadClick 해시[]
 
-        loop 각 파일
+        loop 각 Material
             SC ->> EC : list_file_list2 → efile_download2
             EC -->> SC : 파일 (PDF · PPTX)
             SC ->> DB : upsert_material() → Material
@@ -186,8 +186,9 @@ sequenceDiagram
   <div class="section-label">질문 → 키워드 검색 → Claude 답변 흐름</div>
   <div class="card">
     <p>
-      키워드를 FTS5로 Doc_Chunk에서 검색하고, chunk_id·material_id·page_ref로 출처를 추적합니다.<br>
-      Chat_Log의 sources 필드에 JSON으로 저장하며, 피드백은 feedback_score에 즉시 반영됩니다.
+      키워드를 FTS5로 Doc_Chunk에서 검색하고, chunk_id · material_id · page_ref를 Chat_Log.sources(JSON)에 저장합니다.<br>
+      Material은 원본 파일, Doc_Chunk는 그 분할본, Chat_Log.sources는 답변에 쓰인 청크 참조입니다.<br>
+      피드백은 Chat_Log.feedback_score에 즉시 반영됩니다.
     </p>
     <div class="pills">
       <span class="pill">EP <b>POST /chat · GET /chat/{session_id} · POST /chat/{id}/feedback</b></span>
@@ -230,8 +231,8 @@ sequenceDiagram
     AP ->> DB : INSERT Chat_Log role=user
     AP ->> DB : INSERT Chat_Log role=assistant · sources=JSON
 
-    AP -->> EX : answer · sources · chat_id
-    EX -->> U  : 답변 + 출처 표시
+    AP -->> EX : answer · Chat_Log.sources · chat_id
+    EX -->> U  : 답변 + Material 출처 표시
 
     opt 피드백
         U  ->> EX : 👍 / 👎
