@@ -84,10 +84,25 @@
       margin-bottom: 1.4rem;
     }
 
-    /* 다이어그램 SVG 최소 너비 보장 */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      margin-bottom: 1.2rem;
+    }
+    .legend-item {
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: .72rem;
+      padding: .2rem .6rem;
+      color: var(--muted);
+    }
+    .legend-item b { color: var(--accent); }
+
     .diagram-card .mermaid svg {
       background: transparent !important;
-      min-width: 700px;
+      min-width: 760px;
     }
   </style>
 </head>
@@ -96,7 +111,10 @@
 <div class="topbar">
   <span class="title">LMS AI Copilot</span>
   <span class="tag hi">Sequence Diagrams</span>
-  <span class="sub">ISD Team · 2025</span>
+  <span class="tag">SQLite</span>
+  <span class="tag">FastAPI</span>
+  <span class="tag">Claude API</span>
+  <span class="sub">ISD Team · 2026</span>
 </div>
 
 <div class="tabnav">
@@ -106,18 +124,24 @@
 
 <!-- ① Sync -->
 <div id="tab-sync" class="tab active">
-  <div class="section-label">e-Class → PostgreSQL 동기화 흐름</div>
+  <div class="section-label">e-Class → SQLite 동기화 흐름</div>
   <div class="diagram-card">
     <p>
-      사용자가 동기화를 요청하면 FastAPI가 e-Class에 세션 로그인하여<br>
-      강의 목록·자료·활동을 수집하고 PostgreSQL에 저장합니다.
+      쿠키 주입으로 세션을 확립하고 강의자료·활동을 수집해 SQLite에 저장합니다.<br>
+      강의자료는 다운로드 후 청크 분할까지 완료해 키워드 검색을 준비합니다.
     </p>
+    <div class="legend">
+      <span class="legend-item">EP <b>POST /sync</b></span>
+      <span class="legend-item">DB <b>User</b> · <b>Course</b> · <b>Enrollment</b></span>
+      <span class="legend-item">DB <b>Material</b> · <b>Doc_Chunk</b></span>
+      <span class="legend-item">DB <b>Learning_Activity</b></span>
+    </div>
     <div class="mermaid">
 %%{init: {
   "theme": "dark",
   "sequence": {
     "actorMargin": 80,
-    "width": 160,
+    "width": 170,
     "noteMargin": 10,
     "messageMargin": 40,
     "useMaxWidth": false
@@ -130,54 +154,75 @@ sequenceDiagram
     participant AP as FastAPI
     participant SC as Scraper
     participant EC as e-Class
-    participant DB as PostgreSQL
+    participant DB as SQLite
 
     U  ->> EX : 동기화 클릭
-    EX ->> AP : POST /sync
-    AP ->> SC : run_sync()
+    EX ->> AP : POST /sync {lms_id, cookie}
+    AP ->> SC : run_sync(lms_id, cookie)
 
-    SC ->> EC : POST login.acl
-    EC -->> SC : 세션 쿠키
+    note over SC,EC : Cookie Injection — WIS 2FA 우회
+    SC ->> EC : GET main_form.acl (JSESSIONID)
+    EC -->> SC : 세션 확립
 
-    SC ->> DB : upsert_user()
+    SC ->> DB : upsert_user(lms_id, cookie)<br/>→ User.user_id
     DB -->> SC : user_id
 
-    SC ->> EC : GET course_list
-    EC -->> SC : 과목 목록
+    note over SC,EC : 수강과목 파싱 — em.sub_open[kj]
+    SC ->> EC : GET main_form.acl
+    EC -->> SC : em[kj] 목록 (KJKEY, title)
 
-    loop 각 과목
-        SC ->> DB : upsert_course()
-        SC ->> EC : GET materials
-        loop 각 파일
-            SC ->> EC : GET download
-            EC -->> SC : 파일
-            SC ->> DB : upsert_material()
+    loop 각 과목 (KJKEY)
+        SC ->> DB : upsert_course(lms_url_id=KJKEY)<br/>→ Course.course_id
+        SC ->> DB : upsert_enrollment(user_id, course_id)<br/>→ Enrollment
+
+        note over SC,EC : eclass_room2.acl → 과목 컨텍스트 설정
+        SC ->> EC : POST eclass_room2.acl {KJKEY}
+        EC -->> SC : returnURL
+
+        SC ->> EC : POST lecture_material_list.acl
+        EC -->> SC : downloadClick 해시 목록
+
+        loop 각 강의자료
+            SC ->> EC : POST list_file_list2.acl {CONTENT_SEQ}
+            EC -->> SC : efile_download2.acl 링크
+            SC ->> EC : GET efile_download2.acl
+            EC -->> SC : 파일 (PDF·PPTX)
+            SC ->> DB : upsert_material(course_id, title, checksum)<br/>→ Material.material_id
+            SC ->> DB : insert_doc_chunks(material_id, chunks[])<br/>→ Doc_Chunk rows
         end
-        SC ->> EC : GET activities
-        SC ->> DB : upsert_activity()
+
+        SC ->> EC : GET report_list / test_list
+        EC -->> SC : 과제·퀴즈 목록
+        SC ->> DB : upsert_activity(user_id, course_id)<br/>→ Learning_Activity
     end
 
-    SC ->> DB : touch_sync()
-    AP -->> EX : synced OK
-    EX -->> U  : 완료
+    SC ->> DB : touch_sync(user_id)<br/>→ User.last_sync_at
+    AP -->> EX : {status, courses, materials, activities}
+    EX -->> U  : 동기화 완료
     </div>
   </div>
 </div>
 
 <!-- ② RAG Q&A -->
 <div id="tab-rag" class="tab">
-  <div class="section-label">질문 → 벡터 검색 → Claude 답변 흐름</div>
+  <div class="section-label">질문 → 키워드 검색 → Claude 답변 흐름</div>
   <div class="diagram-card">
     <p>
-      사용자 질문을 임베딩하여 pgvector에서 관련 강의자료 청크를 검색하고,<br>
-      대화 이력과 함께 Claude API로 개인화된 답변을 생성합니다.
+      질문에서 키워드를 추출해 Doc_Chunk를 FTS 검색하고 chunk_id·material_id로 출처를 추적합니다.<br>
+      Chat_Log는 JSON sources 필드에 번호를 저장하며, 피드백도 동일 레코드에 반영됩니다.
     </p>
+    <div class="legend">
+      <span class="legend-item">EP <b>POST /chat</b> · <b>GET /chat/{session_id}</b> · <b>POST /chat/{chat_id}/feedback</b></span>
+      <span class="legend-item">DB <b>Chat_Session</b> · <b>Chat_Log</b></span>
+      <span class="legend-item">DB <b>Doc_Chunk</b> · <b>Material</b></span>
+      <span class="legend-item">JSON <b>sources: [{chunk_id, material_id, page_ref}]</b></span>
+    </div>
     <div class="mermaid">
 %%{init: {
   "theme": "dark",
   "sequence": {
     "actorMargin": 80,
-    "width": 160,
+    "width": 170,
     "noteMargin": 10,
     "messageMargin": 40,
     "useMaxWidth": false
@@ -188,31 +233,40 @@ sequenceDiagram
     actor    U  as User
     participant EX as Extension
     participant AP as FastAPI
-    participant RG as RAG
-    participant VS as pgvector
+    participant KW as KeySearch
     participant LM as Claude
-    participant DB as PostgreSQL
+    participant DB as SQLite
 
     U  ->> EX : 질문 입력
-    EX ->> AP : POST /chat
+    EX ->> AP : POST /chat {query, course_id, session_id?}
 
-    AP ->> DB : Chat_Session 생성
-    AP ->> DB : INSERT Chat_Log (user)
-    AP ->> RG : query(question)
+    AP ->> DB : Chat_Session 조회/생성<br/>→ Chat_Session.session_id
 
-    RG ->> VS : embed → cosine search
-    VS -->> RG : Top-K chunks
+    AP ->> DB : SELECT Chat_Log WHERE session_id<br/>→ [{role, content}] 최근 N턴
 
-    RG ->> DB : SELECT Chat_Log
-    DB -->> RG : 대화 이력
+    note over AP,KW : 키워드 기반 청크 검색 (SQLite FTS5)
+    AP ->> KW : extract_keywords(query)
+    KW -->> AP : keywords[]
+    AP ->> DB : SELECT chunk_id, material_id, page_ref, content<br/>FROM Doc_Chunk (FTS) WHERE course_id<br/>MATCH keywords → score DESC LIMIT k
+    DB -->> AP : [{chunk_id, material_id, page_ref, snippet}]
 
-    RG ->> LM : prompt + chunks
-    LM -->> RG : 답변 + 출처
+    note over AP,LM : 프롬프트 조립
+    AP ->> LM : system: 과목 튜터 컨텍스트<br/>context: chunk 내용 목록<br/>history: Chat_Log 이력<br/>user: query
 
-    RG -->> AP : answer, sources
-    AP ->> DB : INSERT Chat_Log (assistant)
-    AP -->> EX : 답변
-    EX -->> U  : 표시
+    LM -->> AP : 답변 텍스트 (streaming)
+
+    AP ->> DB : INSERT Chat_Log<br/>{session_id, role='user', content=query,<br/>sources=null}
+    AP ->> DB : INSERT Chat_Log<br/>{session_id, role='assistant', content=답변,<br/>sources=JSON[{chunk_id, material_id, page_ref}]}
+
+    AP -->> EX : {answer, sources, session_id, chat_id}
+    EX -->> U  : 답변 + 출처(강의명·페이지) 표시
+
+    opt 피드백
+        U  ->> EX : 👍 / 👎
+        EX ->> AP : POST /chat/{chat_id}/feedback {score}
+        AP ->> DB : UPDATE Chat_Log SET feedback_score=score<br/>WHERE chat_id
+        AP -->> EX : OK
+    end
     </div>
   </div>
 </div>
@@ -223,7 +277,7 @@ sequenceDiagram
     securityLevel: 'loose',
     sequence: {
       actorMargin: 80,
-      width: 160,
+      width: 170,
       useMaxWidth: false
     }
   });

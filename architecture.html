@@ -10,6 +10,8 @@
       --surface: #1a1d27;
       --border: #2a2d3a;
       --accent: #6c8ef7;
+      --green: #4ade80;
+      --yellow: #facc15;
       --text: #e2e4f0;
       --muted: #7a7d90;
       --tag-bg: #1e2235;
@@ -22,19 +24,15 @@
       min-height: 100vh;
     }
 
-    /* Top bar */
     .topbar {
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: .6rem;
       padding: 1rem 2rem;
       border-bottom: 1px solid var(--border);
     }
-    .topbar .title { font-size: .95rem; font-weight: 600; color: var(--text); }
+    .topbar .title { font-size: .95rem; font-weight: 600; }
     .topbar .sub   { font-size: .78rem; color: var(--muted); margin-left: auto; }
-
-    /* Tag chips */
-    .tags { display: flex; gap: .5rem; flex-wrap: wrap; padding: 1rem 2rem .5rem; }
     .tag {
       background: var(--tag-bg);
       border: 1px solid var(--border);
@@ -45,8 +43,27 @@
     }
     .tag.hi { border-color: var(--accent); color: var(--accent); }
 
-    /* Section */
-    .section { padding: 1.5rem 2rem; }
+    .tabnav {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+    }
+    .tabnav button {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-size: .85rem;
+      padding: .75rem 1.2rem;
+      cursor: pointer;
+      transition: .15s;
+    }
+    .tabnav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tabnav button:hover  { color: var(--text); }
+
+    .tab { display: none; padding: 1.5rem 2rem; }
+    .tab.active { display: block; }
+
     .section-label {
       font-size: .7rem;
       letter-spacing: .12em;
@@ -55,114 +72,254 @@
       margin-bottom: 1rem;
     }
 
-    /* Diagram card */
     .diagram-card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
+      padding: 1.5rem 2rem;
       overflow-x: auto;
     }
     .diagram-card h2 {
       font-size: .85rem;
       font-weight: 600;
       color: var(--accent);
+      margin-bottom: .8rem;
+    }
+    .diagram-card p {
+      font-size: .82rem;
+      color: var(--muted);
+      line-height: 1.6;
       margin-bottom: 1.2rem;
     }
 
-    /* Mermaid dark override */
-    .mermaid svg { background: transparent !important; }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      margin-bottom: 1.2rem;
+    }
+    .legend-item {
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: .72rem;
+      padding: .2rem .6rem;
+      color: var(--muted);
+    }
+    .legend-item b { color: var(--accent); }
+
+    .mermaid svg { background: transparent !important; min-width: 680px; }
   </style>
 </head>
 <body>
 
 <div class="topbar">
   <span class="title">LMS AI Copilot</span>
-  <div class="tags" style="padding:0; margin:0;">
-    <span class="tag hi">System Architecture</span>
-    <span class="tag">HUFS e-Class</span>
-    <span class="tag">FastAPI</span>
-    <span class="tag">PostgreSQL + pgvector</span>
-  </div>
-  <span class="sub">ISD Team · 2025</span>
+  <span class="tag hi">System Architecture</span>
+  <span class="tag">HUFS e-Class</span>
+  <span class="tag">FastAPI</span>
+  <span class="tag">SQLite · FTS5</span>
+  <span class="tag">Claude API</span>
+  <span class="sub">ISD Team · 2026</span>
 </div>
 
-<div class="section">
-  <div class="section-label">Overall Architecture</div>
+<div class="tabnav">
+  <button class="active" onclick="show('overview',this)">① System Overview</button>
+  <button onclick="show('ingest',this)">② Ingest Pipeline</button>
+  <button onclick="show('chat',this)">③ Chat / RAG Flow</button>
+</div>
 
+<!-- ① Overview -->
+<div id="tab-overview" class="tab active">
+  <div class="section-label">전체 시스템 구성 — 6개 레이어</div>
   <div class="diagram-card">
     <h2>End-to-End System</h2>
+    <p>
+      Chrome Extension이 쿠키를 포착해 FastAPI로 전달하면 Scraper가 e-Class에서 강의자료·활동을 수집합니다.<br>
+      수집된 자료는 청크로 분할되어 SQLite(FTS5)에 저장되고, 질문 시 키워드 매칭으로 컨텍스트를 조합해 Claude가 답변합니다.
+    </p>
+    <div class="legend">
+      <span class="legend-item"><b>파란 선</b> Sync 경로</span>
+      <span class="legend-item"><b>초록 선</b> Chat 경로</span>
+      <span class="legend-item">DB 테이블명 그대로 표기</span>
+    </div>
     <div class="mermaid">
-%%{init: {"theme": "dark", "themeVariables": {"background": "#1a1d27", "primaryColor": "#2a2d3a", "primaryTextColor": "#e2e4f0", "lineColor": "#6c8ef7"}}}%%
+%%{init: {"theme": "dark", "themeVariables": {"background": "#1a1d27", "primaryColor": "#2a2d3a", "primaryTextColor": "#e2e4f0", "lineColor": "#6c8ef7", "edgeLabelBackground": "#1a1d27"}}}%%
 graph TB
     subgraph EXT["Chrome Extension"]
-        UI["Sidebar UI"]
-        AUTH["Session Handler"]
+        UI["Sidebar UI\n질문 입력 · 답변 표시\n활동 알림"]
+        CK["Cookie Interceptor\nchrome.cookies API\n→ JSESSIONID"]
     end
 
-    subgraph BE["FastAPI Backend"]
-        S["/sync"]
-        C["/chat"]
+    subgraph API["FastAPI Backend"]
+        EP1["POST /sync"]
+        EP2["POST /chat"]
+        EP3["GET /chat/{session_id}"]
+        EP4["POST /chat/{chat_id}/feedback"]
     end
 
-    subgraph LMS["HUFS e-Class"]
-        EC["Web Server"]
-        MAT["Materials (PDF/PPT)"]
-        ACT["Assignments/Quizzes"]
+    subgraph ECLASS["HUFS e-Class (ILOS)"]
+        AUTH["Session Auth\nmain_form.acl"]
+        MAT["강의자료\nefile_download2.acl"]
+        ACT["과제 · 퀴즈\nreport_list / test_list"]
+    end
+
+    subgraph INGEST["Ingest Pipeline"]
+        SCR["EClassScraper\ncookie injection\ncourse · material · activity"]
+        CHK["Chunker\n페이지 단위 분할\ncourse_id 태깅"]
+    end
+
+    subgraph DB["SQLite Database"]
+        DB1["User · Course\nEnrollment"]
+        DB2["Material · Doc_Chunk\n(content · page_ref · chunk_index)"]
+        DB3["Learning_Activity"]
+        DB4["Chat_Session · Chat_Log\n(role · content · sources JSON\n· feedback_score)"]
     end
 
     subgraph RAG["RAG Engine"]
-        EMB["Embedder"]
-        VS["pgvector"]
-        LLM["Claude API"]
+        KW["Keyword Extractor"]
+        FTS["SQLite FTS5\nDoc_Chunk MATCH keywords\n→ chunk_id · material_id · page_ref"]
+        PB["Prompt Builder\ncontext chunks + chat history"]
+        LLM["Claude API\nclaude-sonnet-4-6"]
     end
 
-    subgraph DB["PostgreSQL"]
-        T["User · Course · Material\nDoc_Chunk · Chat_Log"]
-    end
+    CK -->|JSESSIONID| EP1
+    EP1 --> SCR --> AUTH
+    AUTH --> MAT & ACT
+    MAT --> CHK --> DB2
+    SCR --> DB1 & DB3
 
-    UI -->|question| C
-    AUTH -->|cookie| S
-    S --> EC
-    EC --> MAT & ACT
-    S --> DB
-    MAT -->|download + chunk| EMB
-    EMB --> VS
-    C --> VS
-    C --> LLM
-    LLM --> UI
+    UI -->|query + session_id| EP2
+    EP2 -->|read history| DB4
+    EP2 --> KW --> FTS --> DB2
+    FTS -->|top-k chunks| PB
+    DB4 -->|chat history| PB
+    PB --> LLM
+    LLM -->|write Chat_Log| DB4
+    LLM -->|answer + sources| UI
+    UI -->|feedback score| EP4 --> DB4
     </div>
   </div>
+</div>
 
+<!-- ② Ingest -->
+<div id="tab-ingest" class="tab">
+  <div class="section-label">수집 · 저장 파이프라인</div>
   <div class="diagram-card">
-    <h2>Component Detail</h2>
+    <h2>Ingest Pipeline — Cookie → SQLite</h2>
+    <p>
+      JSESSIONID 하나로 세션을 확립하고, KJKEY 단위로 과목 컨텍스트를 설정한 뒤<br>
+      강의자료를 다운로드·청크 분할해 Doc_Chunk에 저장합니다. MD5 체크섬으로 중복을 방지합니다.
+    </p>
+    <div class="legend">
+      <span class="legend-item">DB <b>User</b> lms_id · enc_session_cookie · last_sync_at</span>
+      <span class="legend-item">DB <b>Course</b> lms_url_id(=KJKEY) · course_code · title</span>
+      <span class="legend-item">DB <b>Material</b> title · file_type · file_path · checksum</span>
+      <span class="legend-item">DB <b>Doc_Chunk</b> content · page_ref · chunk_index</span>
+      <span class="legend-item">DB <b>Learning_Activity</b> title · status · due_date</span>
+    </div>
     <div class="mermaid">
 %%{init: {"theme": "dark"}}%%
-graph LR
-    subgraph "Scraper"
-        A["EClassScraper\nget_courses()\nget_materials()\nget_activities()"]
-    end
-    subgraph "DB Layer"
-        B["db.py\nupsert_user / course\nupsert_material / activity"]
-    end
-    subgraph "FastAPI Routers"
-        C["POST /sync"]
-        D["POST /chat\nGET  /chat/{id}"]
-    end
-    subgraph "RAG  (Phase 2)"
-        E["chunker → embedder\n→ qa_engine (Claude)"]
+flowchart TD
+    A(["JSESSIONID\n.env / Extension"]) --> B
+
+    subgraph SCRAPE["EClassScraper"]
+        B["Cookie Injection\nsession.cookies.set()"]
+        B --> C["GET main_form.acl\n세션 유효성 확인"]
+        C --> D["upsert_user()\n→ User.user_id"]
+        C --> E["em.sub_open kj 파싱\n→ KJKEY 목록"]
+
+        E --> F["POST eclass_room2.acl\n과목 컨텍스트 설정"]
+        F --> G["upsert_course(lms_url_id=KJKEY)\n→ Course.course_id"]
+        G --> H["upsert_enrollment()\n→ Enrollment"]
     end
 
-    C --> A & B
-    D --> E
-    B --> E
+    subgraph MATPIPE["Material Pipeline (과목별)"]
+        F --> I["POST lecture_material_list.acl\n→ downloadClick 해시 목록"]
+        I --> J["POST list_file_list2.acl\n→ efile_download2.acl URL"]
+        J --> K["파일 다운로드\nMD5 체크섬 계산"]
+        K --> L{"checksum\n중복?"}
+        L -- 스킵 --> M(["다음 파일"])
+        L -- 신규 --> N["upsert_material()\n→ Material.material_id"]
+        N --> O["텍스트 추출\nPDF · PPTX 파싱"]
+        O --> P["페이지 단위 청크 분할\n(page_ref · chunk_index 부여)"]
+        P --> Q["INSERT Doc_Chunk rows\ncontent · page_ref · material_id"]
+    end
+
+    subgraph ACTPIPE["Activity Pipeline"]
+        F --> R["GET report_list_form.acl\nGET test_list_form.acl"]
+        R --> S["upsert_activity()\n→ Learning_Activity\nstatus · due_date"]
+    end
+
+    Q --> T["touch_sync()\n→ User.last_sync_at"]
+    S --> T
+    </div>
+  </div>
+</div>
+
+<!-- ③ Chat/RAG -->
+<div id="tab-chat" class="tab">
+  <div class="section-label">질문 · 검색 · 생성 파이프라인</div>
+  <div class="diagram-card">
+    <h2>Chat / RAG Flow — Keyword FTS → Claude</h2>
+    <p>
+      질문에서 키워드를 추출해 SQLite FTS5로 관련 Doc_Chunk를 검색합니다.<br>
+      chunk_id · material_id · page_ref로 출처를 추적하고, 답변과 함께 Chat_Log에 JSON으로 저장합니다.
+    </p>
+    <div class="legend">
+      <span class="legend-item">DB <b>Chat_Session</b> user_id · course_id · created_at</span>
+      <span class="legend-item">DB <b>Chat_Log</b> role · content · sources · feedback_score</span>
+      <span class="legend-item">sources JSON <b>[{chunk_id, material_id, page_ref}]</b></span>
+      <span class="legend-item">FTS <b>Doc_Chunk MATCH keywords ORDER BY rank LIMIT k</b></span>
+    </div>
+    <div class="mermaid">
+%%{init: {"theme": "dark"}}%%
+flowchart TD
+    A(["POST /chat\n{query, course_id, session_id?}"]) --> B
+
+    subgraph SESSION["세션 관리"]
+        B["Chat_Session 조회 또는 생성\n→ session_id"]
+        B --> C["SELECT Chat_Log\nWHERE session_id ORDER BY created_at\n→ 최근 N턴 이력"]
+    end
+
+    subgraph SEARCH["Keyword Search — SQLite FTS5"]
+        B --> D["Keyword Extraction\n불용어 제거 · 명사/핵심어 추출"]
+        D --> E["SELECT chunk_id, material_id,\npage_ref, content\nFROM Doc_Chunk\nWHERE course_id = ?\nAND content MATCH keywords\nORDER BY rank LIMIT k"]
+        E --> F["결과: [{chunk_id, material_id,\npage_ref, snippet}]"]
+    end
+
+    subgraph PROMPT["Prompt Assembly"]
+        C --> G
+        F --> G["Prompt Builder\n① System: 과목 튜터 + 과목명\n② Context: chunk 내용 블록\n③ History: 이전 대화 이력\n④ User: query"]
+    end
+
+    subgraph GENERATE["생성 · 저장"]
+        G --> H["Claude API\nclaude-sonnet-4-6\nstreaming"]
+        H --> I["INSERT Chat_Log\nrole='user'\ncontent=query\nsources=null"]
+        H --> J["INSERT Chat_Log\nrole='assistant'\ncontent=answer\nsources=JSON\nfeedback_score=null"]
+    end
+
+    subgraph RETURN["응답"]
+        J --> K(["→ Extension\n{answer, sources,\nsession_id, chat_id}"])
+    end
+
+    subgraph FEEDBACK["피드백 (선택)"]
+        K --> L["POST /chat/{chat_id}/feedback\n{score: 1 or -1}"]
+        L --> M["UPDATE Chat_Log\nSET feedback_score = score\nWHERE chat_id"]
+    end
     </div>
   </div>
 </div>
 
 <script>
   mermaid.initialize({ startOnLoad: true, securityLevel: 'loose' });
+
+  function show(tab, btn) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tabnav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    btn.classList.add('active');
+  }
 </script>
 </body>
 </html>
