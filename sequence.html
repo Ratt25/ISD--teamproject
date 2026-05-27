@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Sequence Diagrams — LMS AI Copilot</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --accent: #6c8ef7;
+      --text: #e2e4f0;
+      --muted: #7a7d90;
+      --tag-bg: #1e2235;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 2rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar .title { font-size: .95rem; font-weight: 600; }
+    .topbar .sub   { font-size: .78rem; color: var(--muted); margin-left: auto; }
+    .tag {
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: .75rem;
+      padding: .25rem .75rem;
+      color: var(--muted);
+    }
+    .tag.hi { border-color: var(--accent); color: var(--accent); }
+
+    .tabnav {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+    }
+    .tabnav button {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-size: .85rem;
+      padding: .75rem 1.2rem;
+      cursor: pointer;
+      transition: .15s;
+    }
+    .tabnav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tabnav button:hover  { color: var(--text); }
+
+    .tab { display: none; padding: 1.5rem 2rem; }
+    .tab.active { display: block; }
+
+    .section-label {
+      font-size: .7rem;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    .diagram-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem 2rem;
+      overflow-x: auto;
+    }
+    .diagram-card p {
+      font-size: .82rem;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-bottom: 1.4rem;
+    }
+
+    /* 다이어그램 SVG 최소 너비 보장 */
+    .diagram-card .mermaid svg {
+      background: transparent !important;
+      min-width: 700px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="title">LMS AI Copilot</span>
+  <span class="tag hi">Sequence Diagrams</span>
+  <span class="sub">ISD Team · 2025</span>
+</div>
+
+<div class="tabnav">
+  <button class="active" onclick="show('sync',this)">① LMS Sync</button>
+  <button onclick="show('rag',this)">② RAG Q&amp;A</button>
+</div>
+
+<!-- ① Sync -->
+<div id="tab-sync" class="tab active">
+  <div class="section-label">e-Class → PostgreSQL 동기화 흐름</div>
+  <div class="diagram-card">
+    <p>
+      사용자가 동기화를 요청하면 FastAPI가 e-Class에 세션 로그인하여<br>
+      강의 목록·자료·활동을 수집하고 PostgreSQL에 저장합니다.
+    </p>
+    <div class="mermaid">
+%%{init: {
+  "theme": "dark",
+  "sequence": {
+    "actorMargin": 80,
+    "width": 160,
+    "noteMargin": 10,
+    "messageMargin": 40,
+    "useMaxWidth": false
+  }
+}}%%
+sequenceDiagram
+    autonumber
+    actor    U  as User
+    participant EX as Extension
+    participant AP as FastAPI
+    participant SC as Scraper
+    participant EC as e-Class
+    participant DB as PostgreSQL
+
+    U  ->> EX : 동기화 클릭
+    EX ->> AP : POST /sync
+    AP ->> SC : run_sync()
+
+    SC ->> EC : POST login.acl
+    EC -->> SC : 세션 쿠키
+
+    SC ->> DB : upsert_user()
+    DB -->> SC : user_id
+
+    SC ->> EC : GET course_list
+    EC -->> SC : 과목 목록
+
+    loop 각 과목
+        SC ->> DB : upsert_course()
+        SC ->> EC : GET materials
+        loop 각 파일
+            SC ->> EC : GET download
+            EC -->> SC : 파일
+            SC ->> DB : upsert_material()
+        end
+        SC ->> EC : GET activities
+        SC ->> DB : upsert_activity()
+    end
+
+    SC ->> DB : touch_sync()
+    AP -->> EX : synced OK
+    EX -->> U  : 완료
+    </div>
+  </div>
+</div>
+
+<!-- ② RAG Q&A -->
+<div id="tab-rag" class="tab">
+  <div class="section-label">질문 → 벡터 검색 → Claude 답변 흐름</div>
+  <div class="diagram-card">
+    <p>
+      사용자 질문을 임베딩하여 pgvector에서 관련 강의자료 청크를 검색하고,<br>
+      대화 이력과 함께 Claude API로 개인화된 답변을 생성합니다.
+    </p>
+    <div class="mermaid">
+%%{init: {
+  "theme": "dark",
+  "sequence": {
+    "actorMargin": 80,
+    "width": 160,
+    "noteMargin": 10,
+    "messageMargin": 40,
+    "useMaxWidth": false
+  }
+}}%%
+sequenceDiagram
+    autonumber
+    actor    U  as User
+    participant EX as Extension
+    participant AP as FastAPI
+    participant RG as RAG
+    participant VS as pgvector
+    participant LM as Claude
+    participant DB as PostgreSQL
+
+    U  ->> EX : 질문 입력
+    EX ->> AP : POST /chat
+
+    AP ->> DB : Chat_Session 생성
+    AP ->> DB : INSERT Chat_Log (user)
+    AP ->> RG : query(question)
+
+    RG ->> VS : embed → cosine search
+    VS -->> RG : Top-K chunks
+
+    RG ->> DB : SELECT Chat_Log
+    DB -->> RG : 대화 이력
+
+    RG ->> LM : prompt + chunks
+    LM -->> RG : 답변 + 출처
+
+    RG -->> AP : answer, sources
+    AP ->> DB : INSERT Chat_Log (assistant)
+    AP -->> EX : 답변
+    EX -->> U  : 표시
+    </div>
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: 'loose',
+    sequence: {
+      actorMargin: 80,
+      width: 160,
+      useMaxWidth: false
+    }
+  });
+
+  function show(tab, btn) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tabnav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    btn.classList.add('active');
+  }
+</script>
+</body>
+</html>

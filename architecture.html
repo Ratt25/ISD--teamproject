@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>System Architecture — LMS AI Copilot</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --accent: #6c8ef7;
+      --text: #e2e4f0;
+      --muted: #7a7d90;
+      --tag-bg: #1e2235;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 2rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar .title { font-size: .95rem; font-weight: 600; color: var(--text); }
+    .topbar .sub   { font-size: .78rem; color: var(--muted); margin-left: auto; }
+
+    /* Tag chips */
+    .tags { display: flex; gap: .5rem; flex-wrap: wrap; padding: 1rem 2rem .5rem; }
+    .tag {
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: .75rem;
+      padding: .25rem .75rem;
+      color: var(--muted);
+    }
+    .tag.hi { border-color: var(--accent); color: var(--accent); }
+
+    /* Section */
+    .section { padding: 1.5rem 2rem; }
+    .section-label {
+      font-size: .7rem;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    /* Diagram card */
+    .diagram-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      overflow-x: auto;
+    }
+    .diagram-card h2 {
+      font-size: .85rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 1.2rem;
+    }
+
+    /* Mermaid dark override */
+    .mermaid svg { background: transparent !important; }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="title">LMS AI Copilot</span>
+  <div class="tags" style="padding:0; margin:0;">
+    <span class="tag hi">System Architecture</span>
+    <span class="tag">HUFS e-Class</span>
+    <span class="tag">FastAPI</span>
+    <span class="tag">PostgreSQL + pgvector</span>
+  </div>
+  <span class="sub">ISD Team · 2025</span>
+</div>
+
+<div class="section">
+  <div class="section-label">Overall Architecture</div>
+
+  <div class="diagram-card">
+    <h2>End-to-End System</h2>
+    <div class="mermaid">
+%%{init: {"theme": "dark", "themeVariables": {"background": "#1a1d27", "primaryColor": "#2a2d3a", "primaryTextColor": "#e2e4f0", "lineColor": "#6c8ef7"}}}%%
+graph TB
+    subgraph EXT["Chrome Extension"]
+        UI["Sidebar UI"]
+        AUTH["Session Handler"]
+    end
+
+    subgraph BE["FastAPI Backend"]
+        S["/sync"]
+        C["/chat"]
+    end
+
+    subgraph LMS["HUFS e-Class"]
+        EC["Web Server"]
+        MAT["Materials (PDF/PPT)"]
+        ACT["Assignments/Quizzes"]
+    end
+
+    subgraph RAG["RAG Engine"]
+        EMB["Embedder"]
+        VS["pgvector"]
+        LLM["Claude API"]
+    end
+
+    subgraph DB["PostgreSQL"]
+        T["User · Course · Material\nDoc_Chunk · Chat_Log"]
+    end
+
+    UI -->|question| C
+    AUTH -->|cookie| S
+    S --> EC
+    EC --> MAT & ACT
+    S --> DB
+    MAT -->|download + chunk| EMB
+    EMB --> VS
+    C --> VS
+    C --> LLM
+    LLM --> UI
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <h2>Component Detail</h2>
+    <div class="mermaid">
+%%{init: {"theme": "dark"}}%%
+graph LR
+    subgraph "Scraper"
+        A["EClassScraper\nget_courses()\nget_materials()\nget_activities()"]
+    end
+    subgraph "DB Layer"
+        B["db.py\nupsert_user / course\nupsert_material / activity"]
+    end
+    subgraph "FastAPI Routers"
+        C["POST /sync"]
+        D["POST /chat\nGET  /chat/{id}"]
+    end
+    subgraph "RAG  (Phase 2)"
+        E["chunker → embedder\n→ qa_engine (Claude)"]
+    end
+
+    C --> A & B
+    D --> E
+    B --> E
+    </div>
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, securityLevel: 'loose' });
+</script>
+</body>
+</html>

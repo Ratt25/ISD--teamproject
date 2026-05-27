@@ -1,0 +1,285 @@
+"""
+HUFS e-Class scraper (cookie-injection, AJAX-aware).
+
+로그인:
+  HUFS WIS는 2FA라 자동 로그인 불가.
+  Chrome → e-Class 로그인 → F12 → Application → Cookies → JSESSIONID 복사
+  .env 파일에 ECLASS_COOKIE=JSESSIONID=... 로 설정.
+
+과목 목록:
+  POST /ilos/st/main/course_ing_list.acl  (AJAX)
+  <tr id="{KJKEY}" org_sect=".." ledg_year=".." ...>
+
+강의자료:
+  POST /ilos/st/course/lecture_material_list.acl (KJKEY 포함)
+  또는 eclass_room2.acl 내부 콘텐츠 파싱
+"""
+import hashlib
+import os
+import re
+from pathlib import Path
+from urllib.parse import urljoin
+
+import requests
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BASE_URL    = "https://eclass.hufs.ac.kr"
+COURSE_AJAX = f"{BASE_URL}/ilos/st/main/course_ing_list.acl"
+MATERIAL_DIR = Path("data/materials")
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": BASE_URL,
+}
+
+
+class EClassScraper:
+    def __init__(self, lms_id: str = None, cookie_str: str = None):
+        self.lms_id   = lms_id or os.getenv("ECLASS_ID")
+        self._cookie  = cookie_str or os.getenv("ECLASS_COOKIE", "")
+        self.session  = requests.Session()
+        self.session.headers.update(HEADERS)
+        self._logged_in = False
+
+    # ------------------------------------------------------------------
+    # 세션 주입
+    # ------------------------------------------------------------------
+
+    def login(self) -> bool:
+        if not self._cookie:
+            raise ValueError("ECLASS_COOKIE 없음. .env에 JSESSIONID 값을 넣으세요.")
+
+        for pair in self._cookie.split(";"):
+            pair = pair.strip()
+            if "=" in pair:
+                name, _, value = pair.partition("=")
+                self.session.cookies.set(
+                    name.strip(), value.strip(), domain="eclass.hufs.ac.kr"
+                )
+
+        # 메인 페이지 로드 — 세션 유효성 확인
+        self.session.get(f"{BASE_URL}/ilos/main/main_form.acl", timeout=15)
+
+        resp = self.session.post(
+            COURSE_AJAX,
+            data={"SCH_VALUE": "", "SCH_ORG_SECT": "", "start": "", "encoding": "utf-8"},
+            timeout=15,
+        )
+        # 로그인 페이지로 리다이렉트되지 않으면 성공
+        self._logged_in = "login_form" not in resp.url and len(resp.content) > 500
+        return self._logged_in
+
+    def get_session_cookie_str(self) -> str:
+        return "; ".join(f"{k}={v}" for k, v in self.session.cookies.items())
+
+    # ------------------------------------------------------------------
+    # 과목 목록 (메인 페이지 파싱)
+    # ------------------------------------------------------------------
+
+    def get_courses(self) -> list[dict]:
+        """
+        메인 페이지의 '수강과목' 섹션에서 em.sub_open[kj] 요소를 파싱.
+        Return list of: {kjkey, course_code, title}
+        """
+        resp = self.session.get(
+            f"{BASE_URL}/ilos/main/main_form.acl", timeout=15
+        )
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.content, "lxml")
+
+        courses = []
+        seen = set()
+        for em in soup.select("em.sub_open[kj]"):
+            kjkey = em.get("kj", "").strip()
+            if not kjkey or kjkey in seen:
+                continue
+            seen.add(kjkey)
+
+            # title attr: "과목명 강의실 들어가기"
+            title_attr = em.get("title", "")
+            title = re.sub(r"\s*강의실\s*들어가기.*$", "", title_attr).strip()
+
+            # inner text 첫 줄: "[캠퍼스]과목명", 두 번째 줄: "(과목코드-분반)"
+            lines = [l.strip() for l in em.get_text("\n").split("\n") if l.strip()]
+            # 캠퍼스 태그 제거
+            if title:
+                clean_title = re.sub(r"^\[.*?\]", "", title).strip()
+            else:
+                clean_title = re.sub(r"^\[.*?\]", "", lines[0] if lines else "").strip()
+
+            # 과목코드: "(코드-분반)" 형태
+            code_raw = next((l for l in lines if re.match(r"^\(.+\)$", l)), "")
+            course_code = code_raw.strip("()")
+
+            courses.append({
+                "kjkey":       kjkey,
+                "course_code": course_code,
+                "title":       clean_title,
+            })
+
+        return courses
+
+    # ------------------------------------------------------------------
+    # 과목 강의실 진입 (세션에 course context 설정)
+    # ------------------------------------------------------------------
+
+    def _enter_course(self, kjkey: str) -> bool:
+        """eclass_room2.acl → returnURL GET → 세션에 과목 컨텍스트 설정."""
+        resp = self.session.post(
+            f"{BASE_URL}/ilos/st/course/eclass_room2.acl",
+            data={
+                "KJKEY": kjkey,
+                "returnData": "json",
+                "returnURI": "/ilos/st/course/submain_form.acl",
+                "encoding": "utf-8",
+            },
+            timeout=15,
+        )
+        try:
+            data = resp.json()
+        except Exception:
+            return False
+        if data.get("isError"):
+            return False
+        return_url = data.get("returnURL", "")
+        if return_url:
+            self.session.get(urljoin(BASE_URL, return_url), timeout=15)
+        return True
+
+    # ------------------------------------------------------------------
+    # 강의자료
+    # ------------------------------------------------------------------
+
+    def get_materials(self, kjkey: str) -> list[dict]:
+        """강의자료 목록 수집 → efile_download2.acl 링크 파싱."""
+        if not self._enter_course(kjkey):
+            return []
+
+        # 강의자료 AJAX 목록 (JS와 동일한 파라미터)
+        resp = self.session.post(
+            f"{BASE_URL}/ilos/st/course/lecture_material_list.acl",
+            data={"start": "0", "display": "1", "SCH_VALUE": "",
+                  "ud": self.lms_id, "ky": kjkey, "encoding": "utf-8"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+
+        # downloadClick('HASH') 패턴에서 content_seq 해시 추출
+        hash_keys = re.findall(r"downloadClick\('([A-Z0-9]+)'\)", resp.text)
+
+        materials = []
+        for hk in hash_keys[:20]:
+            file_resp = self.session.post(
+                f"{BASE_URL}/ilos/co/list_file_list2.acl",
+                data={"ud": self.lms_id, "ky": kjkey,
+                      "pf_st_flag": "2", "CONTENT_SEQ": hk,
+                      "encoding": "utf-8"},
+                timeout=15,
+            )
+            file_soup = BeautifulSoup(file_resp.content, "lxml")
+            # 파일 링크는 onclick에 efile_download2.acl URL 포함
+            for a in file_soup.find_all("a"):
+                onclick = a.get("onclick", "")
+                m = re.search(r"location\.href='(/ilos/co/efile_download2\.acl[^']+)'", onclick)
+                if not m:
+                    continue
+                dl_path = m.group(1)
+                fname   = a.get_text(strip=True)
+                ext     = self._guess_ext(fname, dl_path)
+                materials.append({
+                    "title":        fname or f"material_{hk}",
+                    "file_type":    ext if ext != "unknown" else "bin",
+                    "download_url": urljoin(BASE_URL, dl_path),
+                    "artl_num":     hk,
+                })
+
+        return materials
+
+    def download_material(
+        self, download_url: str, dest_dir: Path, filename: str
+    ) -> tuple[Path, str]:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        local_path = dest_dir / filename
+        resp = self.session.get(download_url, stream=True, timeout=30)
+        resp.raise_for_status()
+        md5 = hashlib.md5()
+        with open(local_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+                md5.update(chunk)
+        return local_path, md5.hexdigest()
+
+    # ------------------------------------------------------------------
+    # 학습 활동 (과제 / 퀴즈)
+    # ------------------------------------------------------------------
+
+    def get_activities(self, kjkey: str) -> list[dict]:
+        if not self._enter_course(kjkey):
+            return []
+
+        activities = []
+        for kind, path in [
+            ("assignment", "/ilos/st/course/report_list_form.acl"),
+            ("quiz",       "/ilos/st/course/test_list_form.acl"),
+        ]:
+            try:
+                resp = self.session.get(BASE_URL + path, timeout=15)
+                resp.raise_for_status()
+                activities += self._parse_activity_list(resp.content, kind)
+            except Exception:
+                pass
+        return activities
+
+    def _parse_activity_list(self, content: bytes, kind: str) -> list[dict]:
+        soup  = BeautifulSoup(content, "lxml")
+        items = []
+        for row in soup.select("table tbody tr"):
+            cols = row.find_all("td")
+            if len(cols) < 2:
+                continue
+            title = cols[0].get_text(strip=True)
+            if not title:
+                continue
+            due_raw = cols[-1].get_text(strip=True)
+            items.append({
+                "title":    f"[{kind}] {title}",
+                "status":   self._parse_status(row),
+                "due_date": self._parse_date(due_raw),
+            })
+        return items
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _guess_ext(title: str, href: str) -> str:
+        for src in (title, href):
+            m = re.search(
+                r"\.(pdf|ppt|pptx|doc|docx|xls|xlsx|zip|mp4|hwp)$",
+                src, re.IGNORECASE
+            )
+            if m:
+                return m.group(1).lower()
+        return "unknown"
+
+    @staticmethod
+    def _parse_status(row) -> str:
+        text = row.get_text().lower()
+        if "제출완료" in text or "완료" in text:
+            return "completed"
+        if "미제출" in text or "미완료" in text:
+            return "pending"
+        return "unknown"
+
+    @staticmethod
+    def _parse_date(raw: str) -> str | None:
+        m = re.search(r"(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})", raw)
+        return re.sub(r"[./]", "-", m.group(1)) if m else None
