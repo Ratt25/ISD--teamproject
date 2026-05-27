@@ -2,6 +2,7 @@
 e-Class → SQLite 동기화 파이프라인
 Usage: python -m pipeline.sync
 """
+import hashlib
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -60,10 +61,17 @@ def run_sync(lms_id: str = None, cookie_str: str = None) -> dict:
         for mat in materials:
             dest = MATERIAL_DIR / kjkey
             safe = _safe_filename(mat["title"], mat["file_type"])
+            local_path = dest / safe
+
             try:
-                local_path, checksum = scraper.download_material(
-                    mat["download_url"], dest, safe
-                )
+                # 이미 다운로드된 파일이면 스킵 — 체크섬만 계산해 DB 확인
+                if local_path.exists():
+                    checksum = hashlib.md5(local_path.read_bytes()).hexdigest()
+                else:
+                    local_path, checksum = scraper.download_material(
+                        mat["download_url"], dest, safe
+                    )
+
                 upsert_material(
                     course_id=course_id,
                     title=mat["title"],

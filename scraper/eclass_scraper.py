@@ -42,11 +42,12 @@ HEADERS = {
 
 class EClassScraper:
     def __init__(self, lms_id: str = None, cookie_str: str = None):
-        self.lms_id   = lms_id or os.getenv("ECLASS_ID")
-        self._cookie  = cookie_str or os.getenv("ECLASS_COOKIE", "")
-        self.session  = requests.Session()
+        self.lms_id        = lms_id or os.getenv("ECLASS_ID")
+        self._cookie       = cookie_str or os.getenv("ECLASS_COOKIE", "")
+        self.session       = requests.Session()
         self.session.headers.update(HEADERS)
-        self._logged_in = False
+        self._logged_in    = False
+        self._current_kjkey = None  # _enter_course 중복 호출 방지
 
     # ------------------------------------------------------------------
     # 세션 주입
@@ -132,6 +133,8 @@ class EClassScraper:
 
     def _enter_course(self, kjkey: str) -> bool:
         """eclass_room2.acl → returnURL GET → 세션에 과목 컨텍스트 설정."""
+        if self._current_kjkey == kjkey:
+            return True
         resp = self.session.post(
             f"{BASE_URL}/ilos/st/course/eclass_room2.acl",
             data={
@@ -151,6 +154,7 @@ class EClassScraper:
         return_url = data.get("returnURL", "")
         if return_url:
             self.session.get(urljoin(BASE_URL, return_url), timeout=15)
+        self._current_kjkey = kjkey
         return True
 
     # ------------------------------------------------------------------
