@@ -166,7 +166,8 @@ sequenceDiagram
             SC ->> EC : list_file_list2 → efile_download2
             EC -->> SC : 파일 (PDF · PPTX)
             SC ->> DB : upsert_material() → Material
-            SC ->> DB : insert_chunks() → Doc_Chunk
+            note over SC,DB : chunker.py — 신규 파일만 청킹
+            SC ->> DB : chunk_material() → Doc_Chunk + FTS5
         end
 
         SC ->> EC : report_list · test_list

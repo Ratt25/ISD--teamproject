@@ -119,6 +119,52 @@ def upsert_activity(
         )
 
 
+# ── Doc_Chunk ─────────────────────────────────────────
+
+def insert_doc_chunks(material_id: int, chunks: list[dict]):
+    """chunks: [{content, page_ref, chunk_index}]"""
+    with get_conn() as conn:
+        for c in chunks:
+            cur = conn.execute(
+                """
+                INSERT INTO Doc_Chunk (material_id, content, page_ref, chunk_index)
+                VALUES (?, ?, ?, ?)
+                """,
+                (material_id, c["content"], c["page_ref"], c["chunk_index"]),
+            )
+            conn.execute(
+                "INSERT INTO Doc_Chunk_fts(rowid, content) VALUES (?, ?)",
+                (cur.lastrowid, c["content"]),
+            )
+
+
+def chunks_exist(material_id: int) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM Doc_Chunk WHERE material_id = ? LIMIT 1", (material_id,)
+        ).fetchone()
+    return row is not None
+
+
+def search_chunks(course_id: int, keywords: str, limit: int = 8) -> list[dict]:
+    """FTS5 키워드 검색 — chunk_id · material_id · page_ref · snippet 반환."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT dc.chunk_id, dc.material_id, dc.page_ref,
+                   snippet(Doc_Chunk_fts, 0, '<b>', '</b>', '...', 20) AS snippet
+            FROM Doc_Chunk_fts
+            JOIN Doc_Chunk dc ON dc.chunk_id = Doc_Chunk_fts.rowid
+            JOIN Material  m  ON m.material_id = dc.material_id
+            WHERE m.course_id = ? AND Doc_Chunk_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (course_id, keywords, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ── Chat ──────────────────────────────────────────────
 
 def create_chat_session(user_id: int, course_id: int = None) -> int:

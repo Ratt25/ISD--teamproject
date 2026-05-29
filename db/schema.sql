@@ -60,6 +60,14 @@ CREATE TABLE IF NOT EXISTS Personal_Log (
     stay_time   INTEGER
 );
 
+-- FTS5 전문 검색 인덱스 (Doc_Chunk.content 기반)
+CREATE VIRTUAL TABLE IF NOT EXISTS Doc_Chunk_fts USING fts5(
+    content,
+    content='Doc_Chunk',
+    content_rowid='chunk_id',
+    tokenize='unicode61'
+);
+
 CREATE TABLE IF NOT EXISTS Chat_Session (
     session_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    INTEGER NOT NULL REFERENCES User(user_id),

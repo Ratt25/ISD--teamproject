@@ -14,6 +14,7 @@ from db.db import (
     upsert_course, upsert_enrollment,
     upsert_material, upsert_activity,
 )
+from pipeline.chunker import chunk_material
 
 load_dotenv()
 
@@ -72,13 +73,15 @@ def run_sync(lms_id: str = None, cookie_str: str = None) -> dict:
                         mat["download_url"], dest, safe
                     )
 
-                upsert_material(
+                mid = upsert_material(
                     course_id=course_id,
                     title=mat["title"],
                     file_type=mat["file_type"],
                     file_path=str(local_path),
                     checksum=checksum,
                 )
+                if mid:
+                    chunk_material(mid, str(local_path), mat["file_type"])
                 total_mat += 1
             except Exception as e:
                 print(f"      [WARN] 다운로드 실패: {e}")
@@ -152,11 +155,13 @@ def run_sync_delta(lms_id: str = None, cookie_str: str = None) -> dict:
                             mat["download_url"], dest, safe
                         )
                         print(f"  [NEW] {safe}")
-                    upsert_material(
+                    mid = upsert_material(
                         course_id=course_id, title=mat["title"],
                         file_type=mat["file_type"],
                         file_path=str(local_path), checksum=checksum,
                     )
+                    if mid:
+                        chunk_material(mid, str(local_path), mat["file_type"])
                     total_mat += 1
                 except Exception as e:
                     print(f"  [WARN] {e}")

@@ -7,10 +7,12 @@ requests==2.32.3
 beautifulsoup4==4.12.3
 lxml==5.3.0
 
-# Database
-psycopg2-binary==2.9.10
-pgvector==0.3.5
+# Text extraction
+pymupdf>=1.24.0
+python-pptx>=0.6.23
+
+# AI
+anthropic>=0.34.0
 
 # Utils
 python-dotenv==1.0.1
-cryptography==43.0.3

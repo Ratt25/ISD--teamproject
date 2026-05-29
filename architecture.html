@@ -156,7 +156,7 @@ graph TB
 
     subgraph PIPE["Ingest Pipeline"]
         SCR["EClassScraper"]
-        CHK["Doc_Chunk 분할"]
+        CHK["chunker.py\nPDF·PPTX → Doc_Chunk\n+ FTS5 index"]
     end
 
     subgraph DB["SQLite"]
@@ -227,9 +227,9 @@ flowchart LR
     J --> K[efile_download2.acl\n파일 다운로드]
     K --> L{Material\nchecksum 중복?}
     L -- 신규 --> O[(Material)]
-    O --> M[텍스트 추출\nPDF · PPTX]
-    M --> N[페이지 단위 분할]
-    N --> P[(Doc_Chunk)]
+    O --> M[chunker.py\n텍스트 추출 PDF · PPTX]
+    M --> N[페이지 단위 분할\nchunk_material]
+    N --> P[(Doc_Chunk\n+ FTS5 index)]
     L -- 중복 --> Q([skip])
 
     F --> R[report_list\ntest_list]
