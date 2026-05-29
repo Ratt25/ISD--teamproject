@@ -51,9 +51,10 @@ POST /chat/{chat_id}/feedback
 ```python
 from db.db import (
     create_chat_session,   # (user_id, course_id) -> session_id: int
-    insert_chat_log,       # (session_id, role, content, sources) -> chat_id: int
+    insert_chat_log,       # (session_id, role, content, keywords, sources) -> chat_id: int
     get_chat_history,      # (session_id) -> list[{role, content, ...}]
     search_chunks,         # (course_id, keywords, limit) -> list[{chunk_id, material_id, page_ref, snippet}]
+    search_chat_logs,      # (session_id, keywords, limit) -> list[{chat_id, role, content, ...}]
 )
 ```
 
@@ -72,6 +73,17 @@ FTS5 `MATCH` syntax: space-separated terms = AND search. Quote phrases for exact
 import re
 keywords = re.sub(r'[^\w\s]', ' ', query).strip()
 ```
+
+### `keywords` field — **required for chat history search**
+Extract keywords from the user's query and store them in `Chat_Log.keywords`.
+This enables `search_chat_logs()` to find past conversations by topic.
+
+```python
+import re
+keywords = re.sub(r'[^\w\s]', ' ', query).strip()   # strip special chars
+# pass to insert_chat_log(..., keywords=keywords, ...)
+```
+Store the **same keywords string** for both the user message and assistant response rows.
 
 ### `sources` JSON format (store in `Chat_Log.sources`)
 ```json
@@ -123,7 +135,7 @@ prompt = f"{context_block}\n\n---\n{history_block}\nUser: {query}"
 ```sql
 Chat_Session : session_id · user_id · course_id · created_at
 Chat_Log     : chat_id · session_id · role · content
-             · sources TEXT (JSON) · feedback_score · created_at
+             · keywords TEXT · sources TEXT (JSON) · feedback_score · created_at
 Doc_Chunk    : chunk_id · material_id · content · page_ref · chunk_index
 Material     : material_id · course_id · title · file_type · file_path · checksum
 Course       : course_id · lms_url_id · course_code · title

@@ -177,17 +177,40 @@ def create_chat_session(user_id: int, course_id: int = None) -> int:
 
 
 def insert_chat_log(
-    session_id: int, role: str, content: str, sources: str = None
+    session_id: int, role: str, content: str,
+    keywords: str = None, sources: str = None
 ) -> int:
     with get_conn() as conn:
         cur = conn.execute(
             """
-            INSERT INTO Chat_Log (session_id, role, content, sources)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO Chat_Log (session_id, role, content, keywords, sources)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (session_id, role, content, sources),
+            (session_id, role, content, keywords, sources),
+        )
+        conn.execute(
+            "INSERT INTO Chat_Log_fts(rowid, content, keywords) VALUES (?, ?, ?)",
+            (cur.lastrowid, content, keywords or ""),
         )
     return cur.lastrowid
+
+
+def search_chat_logs(session_id: int, keywords: str, limit: int = 20) -> list[dict]:
+    """Chat_Log FTS5 검색 — 이전 대화 이력에서 키워드 매칭."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT cl.chat_id, cl.role, cl.content, cl.keywords,
+                   cl.sources, cl.feedback_score, cl.created_at
+            FROM Chat_Log_fts
+            JOIN Chat_Log cl ON cl.chat_id = Chat_Log_fts.rowid
+            WHERE cl.session_id = ? AND Chat_Log_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (session_id, keywords, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_chat_history(session_id: int) -> list[dict]:

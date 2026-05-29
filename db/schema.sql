@@ -80,7 +80,17 @@ CREATE TABLE IF NOT EXISTS Chat_Log (
     session_id     INTEGER NOT NULL REFERENCES Chat_Session(session_id),
     role           TEXT NOT NULL,
     content        TEXT NOT NULL,
-    sources        TEXT,  -- JSON
+    keywords       TEXT,  -- 검색용 키워드 (공백 구분)
+    sources        TEXT,  -- JSON [{chunk_id, material_id, page_ref}]
     feedback_score INTEGER,
     created_at     TEXT DEFAULT (datetime('now'))
+);
+
+-- Chat_Log 전문 검색 인덱스
+CREATE VIRTUAL TABLE IF NOT EXISTS Chat_Log_fts USING fts5(
+    content,
+    keywords,
+    content='Chat_Log',
+    content_rowid='chat_id',
+    tokenize='unicode61'
 );
